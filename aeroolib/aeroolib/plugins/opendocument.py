@@ -118,12 +118,6 @@ NEW_LINE = "[%s]" % md5("&#xA;").hexdigest()
 # parent node defines it. Unfortunately, lxml doesn't support this:
 # the nsmap attribute of Element objects is (currently) readonly.
 
-#def guess_type(val):
-#    if isinstance(val, (str, unicode)):
-#        return 'string'
-#    elif isinstance(val, (int, float, long)):
-#        return 'float'
-
 def _filter(val):
     if type(val)==bool:
         return ''
@@ -475,22 +469,22 @@ class Template(MarkupTemplate):
                 #   parent)
                 # - we replace the opening statement by the <py:xxx> node
                 # - we delete the closing statement (and its ancestors)
+
+                ######## This is need for removing only closing genshi tag except other children tags of <p> tag ########
+                if len(outermost_c_ancestor)>1 and closing in outermost_c_ancestor.getchildren():
+                    outermost_c_ancestor_copy = deepcopy(outermost_c_ancestor)
+                    outermost_c_ancestor.remove(closing)
+                    outermost_c_ancestor.getparent().append(outermost_c_ancestor_copy)
+                    outermost_c_ancestor = outermost_c_ancestor_copy
+                #########################################################################################################
                 wrap_nodes_between(outermost_o_ancestor, outermost_c_ancestor,
                                    genshi_node)
             else:
                 # It's not a genshi statement it's a python expression
                 r_node.attrib[py_replace] = expr
                 parent = r_node.getparent().getparent()
-                if parent is None or parent.tag != table_cell_tag or parent.text is None:
+                if parent is None or parent.tag != table_cell_tag:
                     continue
-
-                # The grand-parent tag is a table cell we should set the
-                # correct value and type for this cell.
-                #dico = "{'%s': %s, '%s': __aeroo_guess_type(%s)}"
-                #update_py_attrs(parent, dico %
-                #        (office_name, expr, office_valuetype, expr))
-                #parent.attrib.pop(office_valuetype, None)
-                #parent.attrib.pop(office_name, None)
                 update_py_attrs(parent, "{'guess_type':1}")
 
     def _handle_column_loops(self, statement, ancestor, opening,
@@ -722,8 +716,6 @@ class Template(MarkupTemplate):
         outzip = zipfile.ZipFile(self.Serializer.new_oo, 'w')
         self.Serializer.outzip = outzip
         kwargs['__aeroo_make_href'] = ImageHref(self.namespaces, outzip, self.Serializer.manifest, kwargs)
-        #kwargs['__aeroo_make_dimension'] = ImageDimension(self.namespaces)
-        #kwargs['__aeroo_guess_type'] = guess_type
         kwargs['__filter'] = _filter
 
         counter = ColumnCounter()
@@ -850,164 +842,160 @@ class TContent(object):
         self.namespaces = self.root.nsmap
         ns = lxml.etree.FunctionNamespace(None)
 
-    def check_tabs(self):
-        tags = self.tree.xpath("//text:*/text()[contains(string(), '%s')]/.." % TAB, namespaces=self.namespaces)
-        for tag in tags:
-            children = tag.getchildren()
-            if tag.text:
-                tabs_text=tag.text.split(TAB)
-                tag.text=tabs_text.pop(0)
-                pos = 0
-                for text in tabs_text:
-                    new_node = EtreeElement('{%s}tab' % self.namespaces['text'],
-                                        attrib={},
-                                        nsmap=self.namespaces)
-                    new_node.tail=text
-                    tag.insert(pos,new_node)
-                    pos += 1
-            else:
-                new_node = EtreeElement('{%s}tab' % self.namespaces['text'],
-                    attrib=tag.attrib,
-                    nsmap=self.namespaces)
-                tag.addnext(new_node)
-            for child in tag.iterchildren():
-                if not child.tail:
-                    continue
-                child_tail = child.tail
-                child.tail = ''
-                tail_text = child_tail.split(TAB)
-                n = len(tail_text)-1
-                while n:
-                    new_node = EtreeElement('{%s}tab' % self.namespaces['text'],
-                                attrib={},
-                                nsmap=self.namespaces)
-                    child.addnext(new_node)
-                    n -= 1
-                child.tail = tail_text.pop(0)
-                last_node = child.getnext()
-                for text in tail_text:
-                    last_node.tail = text
-                    last_node = last_node.getnext()
+#    def check_tabs(self):
+#        tags = self.tree.xpath("//text:*/text()[contains(string(), '%s')]/.." % TAB, namespaces=self.namespaces)
+#        for tag in tags:
+#            children = tag.getchildren()
+#            if tag.text:
+#                tabs_text=tag.text.split(TAB)
+#                tag.text=tabs_text.pop(0)
+#                pos = 0
+#                for text in tabs_text:
+#                    new_node = EtreeElement('{%s}tab' % self.namespaces['text'],
+#                                        attrib={},
+#                                        nsmap=self.namespaces)
+#                    new_node.tail=text
+#                    tag.insert(pos,new_node)
+#                    pos += 1
+#            else:
+#                new_node = EtreeElement('{%s}tab' % self.namespaces['text'],
+#                    attrib=tag.attrib,
+#                    nsmap=self.namespaces)
+#                tag.addnext(new_node)
+#            for child in tag.iterchildren():
+#                if not child.tail:
+#                    continue
+#                child_tail = child.tail
+#                child.tail = ''
+#                tail_text = child_tail.split(TAB)
+#                n = len(tail_text)-1
+#                while n:
+#                    new_node = EtreeElement('{%s}tab' % self.namespaces['text'],
+#                                attrib={},
+#                                nsmap=self.namespaces)
+#                    child.addnext(new_node)
+#                    n -= 1
+#                child.tail = tail_text.pop(0)
+#                last_node = child.getnext()
+#                for text in tail_text:
+#                    last_node.tail = text
+#                    last_node = last_node.getnext()
 
 
-    def check_spaces(self):
-        tags = self.tree.xpath("//text:*[starts-with(text(), ' ') or substring(name(),string-length(name())-1)=' ']", namespaces=self.namespaces)
-        for tag in tags:
-            children = tag.getchildren()
-            if tag.text:
-                tabs_text=tag.text.split(' ')
-                tag.text=tabs_text.pop(0)
-                pos = 0
-                for text in tabs_text:
-                    new_node = EtreeElement('{%s}s' % self.namespaces['text'],
-                                        attrib={},
-                                        nsmap=self.namespaces)
-                    new_node.tail=text
-                    tag.insert(pos,new_node)
-                    pos += 1
-            else:
-                new_node = EtreeElement('{%s}s' % self.namespaces['text'],
-                    attrib=tag.attrib,
-                    nsmap=self.namespaces)
-                tag.addnext(new_node)
-            for child in tag.iterchildren():
-                if not child.tail:
-                    continue
-                child_tail = child.tail
-                child.tail = ''
-                tail_text = child_tail.split(' ')
-                n = len(tail_text)-1
-                while n:
-                    new_node = EtreeElement('{%s}s' % self.namespaces['text'],
-                                attrib={},
-                                nsmap=self.namespaces)
-                    child.addnext(new_node)
-                    n -= 1
-                child.tail = tail_text.pop(0)
-                last_node = child.getnext()
-                for text in tail_text:
-                    last_node.tail = text
-                    last_node = last_node.getnext()
+#    def check_spaces(self):
+#        tags = self.tree.xpath("//text:*[starts-with(text(), ' ') or substring(name(),string-length(name())-1)=' ']", namespaces=self.namespaces)
+#        for tag in tags:
+#            children = tag.getchildren()
+#            if tag.text:
+#                tabs_text=tag.text.split(' ')
+#                tag.text=tabs_text.pop(0)
+#                pos = 0
+#                for text in tabs_text:
+#                    new_node = EtreeElement('{%s}s' % self.namespaces['text'],
+#                                        attrib={},
+#                                        nsmap=self.namespaces)
+#                    new_node.tail=text
+#                    tag.insert(pos,new_node)
+#                    pos += 1
+#            else:
+#                new_node = EtreeElement('{%s}s' % self.namespaces['text'],
+#                    attrib=tag.attrib,
+#                    nsmap=self.namespaces)
+#                tag.addnext(new_node)
+#            for child in tag.iterchildren():
+#                if not child.tail:
+#                    continue
+#                child_tail = child.tail
+#                child.tail = ''
+#                tail_text = child_tail.split(' ')
+#                n = len(tail_text)-1
+#                while n:
+#                    new_node = EtreeElement('{%s}s' % self.namespaces['text'],
+#                                attrib={},
+#                                nsmap=self.namespaces)
+#                    child.addnext(new_node)
+#                    n -= 1
+#                child.tail = tail_text.pop(0)
+#                last_node = child.getnext()
+#                for text in tail_text:
+#                    last_node.tail = text
+#                    last_node = last_node.getnext()
 
-    def check_new_lines(self):
-        tags = self.tree.xpath("//text:*[contains(text(), '%s')]" % NEW_LINE, namespaces=self.namespaces)
-        for tag in tags:
-            children = tag.getchildren()
-            if tag.text:
-                for text in tag.text.split(NEW_LINE):
-                    new_node = EtreeElement('%s' % tag.tag,
-                                        attrib=tag.attrib,
-                                        nsmap=self.namespaces)
-                    new_node.text=text
-                    tag.addprevious(new_node)
-                last_node=new_node
-            else:
-                new_node = EtreeElement('%s' % tag.tag,
-                    attrib=tag.attrib,
-                    nsmap=self.namespaces)
-                last_node = new_node
-                tag.addnext(new_node)
-            if children:
-                for child in children:
-                    if tag.text and tag.text.endswith(NEW_LINE):
-                        new_node = EtreeElement('%s' % tag.tag,
-                                        attrib=tag.attrib,
-                                        nsmap=self.namespaces)
-                        new_node.append(child)
-                        last_node.addnext(new_node)
-                        last_node = new_node
-                        last_child = None
-                    else:
-                        last_node.append(child)
-                        last_child = child
+#    def check_new_lines(self):
+#        tags = self.tree.xpath("//text:*[contains(text(), '%s')]" % NEW_LINE, namespaces=self.namespaces)
+#        for tag in tags:
+#            children = tag.getchildren()
+#            if tag.text:
+#                for text in tag.text.split(NEW_LINE):
+#                    new_node = EtreeElement('%s' % tag.tag,
+#                                        attrib=tag.attrib,
+#                                        nsmap=self.namespaces)
+#                    new_node.text=text
+#                    tag.addprevious(new_node)
+#                last_node=new_node
+#            else:
+#                new_node = EtreeElement('%s' % tag.tag,
+#                    attrib=tag.attrib,
+#                    nsmap=self.namespaces)
+#                last_node = new_node
+#                tag.addnext(new_node)
+#            if children:
+#                for child in children:
+#                    if tag.text and tag.text.endswith(NEW_LINE):
+#                        new_node = EtreeElement('%s' % tag.tag,
+#                                        attrib=tag.attrib,
+#                                        nsmap=self.namespaces)
+#                        new_node.append(child)
+#                        last_node.addnext(new_node)
+#                        last_node = new_node
+#                        last_child = None
+#                    else:
+#                        last_node.append(child)
+#                        last_child = child
+#
+#                    if not child.tail:
+#                        continue
+#                    child_tail = child.tail
+#                    child.tail = ''
+#                    tail_text = child_tail.split(NEW_LINE)
+#                    if tail_text[0] is not None and last_child is not None:
+#                        last_child.tail = tail_text.pop(0)
+#                    for text in tail_text:
+#                        new_node = EtreeElement('%s' % tag.tag,
+#                                    attrib=tag.attrib,
+#                                    nsmap=self.namespaces)
+#                        new_node.text=text
+#                        last_node.addnext(new_node)
+#                        last_node = new_node
+#            tag.getparent().remove(tag)
 
-                    if not child.tail:
-                        continue
-                    child_tail = child.tail
-                    child.tail = ''
-                    tail_text = child_tail.split(NEW_LINE)
-                    if tail_text[0] is not None and last_child is not None:
-                        last_child.tail = tail_text.pop(0)
-                    for text in tail_text:
-                        new_node = EtreeElement('%s' % tag.tag,
-                                    attrib=tag.attrib,
-                                    nsmap=self.namespaces)
-                        new_node.text=text
-                        last_node.addnext(new_node)
-                        last_node = new_node
-            tag.getparent().remove(tag)
+#    def check_guess_type(self):
+#        tags = self.tree.xpath('//table:table-cell[@guess_type]', namespaces=self.namespaces)
+#        for tag in tags:
+#            if len(tag)>1 or tag[0].getchildren():
+#                guess_type = 'string'
+#            else:
+#                try:
+#                    float(tag[0].text)
+#                    guess_type = 'float'
+#                    tag.attrib['{%s}value' % self.namespaces['office']] = tag[0].text
+#                except ValueError:
+#                    guess_type = 'string'
+#                except TypeError:
+#                    guess_type = 'string'
+#            tag.attrib['{%s}value-type' % self.namespaces['office']] = guess_type
+#            del tag.attrib['guess_type']
 
-    def check_guess_type(self):
-        tags = self.tree.xpath('//table:table-cell[@guess_type]', namespaces=self.namespaces)
-        for tag in tags:
-            if len(tag)>1 or tag[0].getchildren():
-                guess_type = 'string'
-            else:
-                try:
-                    float(tag[0].text)
-                    guess_type = 'float'
-                    tag.attrib['{%s}value' % self.namespaces['office']] = tag[0].text
-                except ValueError:
-                    guess_type = 'string'
-            tag.attrib['{%s}value-type' % self.namespaces['office']] = guess_type
-            del tag.attrib['guess_type']
-
-    def check_images(self):
-        tags = self.tree.xpath('//draw:frame/draw:image[@svg:height and @svg:width]', namespaces=self.namespaces)
-        for tag in tags:
-            height = tag.attrib['{%s}height' % self.namespaces['svg']]
-            width = tag.attrib['{%s}width' % self.namespaces['svg']]
-            del tag.attrib['{%s}height' % self.namespaces['svg']]
-            del tag.attrib['{%s}width' % self.namespaces['svg']]
+#    def check_images(self):
+#        tags = self.tree.xpath('//draw:frame/draw:image[@svg:height and @svg:width]', namespaces=self.namespaces)
+#        for tag in tags:
+#            height = tag.attrib['{%s}height' % self.namespaces['svg']]
+#            width = tag.attrib['{%s}width' % self.namespaces['svg']]
+#            del tag.attrib['{%s}height' % self.namespaces['svg']]
+#            del tag.attrib['{%s}width' % self.namespaces['svg']]
             
-            tag.getparent().attrib.update({'{%s}height' % self.namespaces['svg']:height,
-                                           '{%s}width' % self.namespaces['svg']:width})
-        tags = self.tree.xpath('//draw:frame[not(draw:image/@xlink:href)]', namespaces=self.namespaces)
-        for tag in tags:
-            text_box = EtreeElement('{%s}text-box' % self.namespaces['draw'],
-                                      nsmap={'draw': self.namespaces['draw'],
-                                             'py': GENSHI_URI})
-            tag.replace(tag[0], text_box)
+#            tag.getparent().attrib.update({'{%s}height' % self.namespaces['svg']:height,
+#                                           '{%s}width' % self.namespaces['svg']:width})
 
     def __str__(self):
         return lxml.etree.tostring(self.tree, encoding='UTF-8',
@@ -1068,6 +1056,169 @@ class OOSerializer:
         #self.outzip = zipfile.ZipFile(self.new_oo, 'w')
         self.xml_serializer = genshi.output.XMLSerializer()
 
+
+
+    def check_tabs(self, tree, namespaces):
+        tags = tree.xpath("//text:*/text()[contains(string(), '%s')]/.." % TAB, namespaces=namespaces)
+        #tags = self.tree.xpath("//text:*/text()[contains(string(), '%s')]/.." % TAB, namespaces=self.namespaces)
+        for tag in tags:
+            children = tag.getchildren()
+            if tag.text:
+                tabs_text=tag.text.split(TAB)
+                tag.text=tabs_text.pop(0)
+                pos = 0
+                for text in tabs_text:
+                    new_node = EtreeElement('{%s}tab' % namespaces['text'],
+                                        attrib={},
+                                        nsmap=namespaces)
+                    new_node.tail=text
+                    tag.insert(pos,new_node)
+                    pos += 1
+            else:
+                new_node = EtreeElement('{%s}tab' % namespaces['text'],
+                    attrib=tag.attrib,
+                    nsmap=namespaces)
+                tag.addnext(new_node)
+            for child in tag.iterchildren():
+                if not child.tail:
+                    continue
+                child_tail = child.tail
+                child.tail = ''
+                tail_text = child_tail.split(TAB)
+                n = len(tail_text)-1
+                while n:
+                    new_node = EtreeElement('{%s}tab' % namespaces['text'],
+                                attrib={},
+                                nsmap=namespaces)
+                    child.addnext(new_node)
+                    n -= 1
+                child.tail = tail_text.pop(0)
+                last_node = child.getnext()
+                for text in tail_text:
+                    last_node.tail = text
+                    last_node = last_node.getnext()
+
+
+    def check_spaces(self, tree, namespaces):
+        #tags = self.tree.xpath("//text:*[starts-with(text(), ' ') or substring(name(),string-length(name())-1)=' ']", namespaces=self.namespaces)
+        tags = tree.xpath("//text:*[starts-with(text(), ' ') or substring(name(),string-length(name())-1)=' ']", namespaces=namespaces)
+        for tag in tags:
+            children = tag.getchildren()
+            if tag.text:
+                tabs_text=tag.text.split(' ')
+                tag.text=tabs_text.pop(0)
+                pos = 0
+                for text in tabs_text:
+                    new_node = EtreeElement('{%s}s' % namespaces['text'],
+                                        attrib={},
+                                        nsmap=namespaces)
+                    new_node.tail=text
+                    tag.insert(pos,new_node)
+                    pos += 1
+            else:
+                new_node = EtreeElement('{%s}s' % namespaces['text'],
+                    attrib=tag.attrib,
+                    nsmap=namespaces)
+                tag.addnext(new_node)
+            for child in tag.iterchildren():
+                if not child.tail:
+                    continue
+                child_tail = child.tail
+                child.tail = ''
+                tail_text = child_tail.split(' ')
+                n = len(tail_text)-1
+                while n:
+                    new_node = EtreeElement('{%s}s' % namespaces['text'],
+                                attrib={},
+                                nsmap=namespaces)
+                    child.addnext(new_node)
+                    n -= 1
+                child.tail = tail_text.pop(0)
+                last_node = child.getnext()
+                for text in tail_text:
+                    last_node.tail = text
+                    last_node = last_node.getnext()
+
+    def check_new_lines(self, tree, namespaces):
+        #tags = self.tree.xpath("//text:*[contains(text(), '%s')]" % NEW_LINE, namespaces=self.namespaces)
+        tags = tree.xpath("//text:*[contains(text(), '%s')]" % NEW_LINE, namespaces=namespaces)
+        for tag in tags:
+            children = tag.getchildren()
+            if tag.text:
+                for text in tag.text.split(NEW_LINE):
+                    new_node = EtreeElement('%s' % tag.tag,
+                                        attrib=tag.attrib,
+                                        nsmap=namespaces)
+                    new_node.text=text
+                    tag.addprevious(new_node)
+                last_node=new_node
+            else:
+                new_node = EtreeElement('%s' % tag.tag,
+                    attrib=tag.attrib,
+                    nsmap=namespaces)
+                last_node = new_node
+                tag.addnext(new_node)
+            if children:
+                for child in children:
+                    if tag.text and tag.text.endswith(NEW_LINE):
+                        new_node = EtreeElement('%s' % tag.tag,
+                                        attrib=tag.attrib,
+                                        nsmap=namespaces)
+                        new_node.append(child)
+                        last_node.addnext(new_node)
+                        last_node = new_node
+                        last_child = None
+                    else:
+                        last_node.append(child)
+                        last_child = child
+
+                    if not child.tail:
+                        continue
+                    child_tail = child.tail
+                    child.tail = ''
+                    tail_text = child_tail.split(NEW_LINE)
+                    if tail_text[0] is not None and last_child is not None:
+                        last_child.tail = tail_text.pop(0)
+                    for text in tail_text:
+                        new_node = EtreeElement('%s' % tag.tag,
+                                    attrib=tag.attrib,
+                                    nsmap=namespaces)
+                        new_node.text=text
+                        last_node.addnext(new_node)
+                        last_node = new_node
+            tag.getparent().remove(tag)
+
+    def check_guess_type(self, tree, namespaces):
+        #tags = self.tree.xpath('//table:table-cell[@guess_type]', namespaces=self.namespaces)
+        tags = tree.xpath('//table:table-cell[@guess_type]', namespaces=namespaces)
+        for tag in tags:
+            if len(tag)>1 or tag[0].getchildren():
+                guess_type = 'string'
+            else:
+                try:
+                    float(tag[0].text)
+                    guess_type = 'float'
+                    tag.attrib['{%s}value' % namespaces['office']] = tag[0].text
+                except (ValueError,TypeError):
+                    guess_type = 'string'
+            tag.attrib['{%s}value-type' % namespaces['office']] = guess_type
+            del tag.attrib['guess_type']
+
+    def check_images(self, tree, namespaces):
+        #tags = self.tree.xpath('//draw:frame/draw:image[@svg:height and @svg:width]', namespaces=self.namespaces)
+        tags = tree.xpath('//draw:frame/draw:image[@svg:height and @svg:width]', namespaces=namespaces)
+        for tag in tags:
+            height = tag.attrib['{%s}height' % namespaces['svg']]
+            width = tag.attrib['{%s}width' % namespaces['svg']]
+            del tag.attrib['{%s}height' % namespaces['svg']]
+            del tag.attrib['{%s}width' % namespaces['svg']]
+            
+            tag.getparent().attrib.update({'{%s}height' % namespaces['svg']:height,
+                                           '{%s}width' % namespaces['svg']:width})
+
+
+
+
     def apply_style(self, oo_styles):
         if oo_styles:
             self.styles_zip = zipfile.ZipFile(oo_styles)
@@ -1078,32 +1229,35 @@ class OOSerializer:
             font_face_new = self.styles_new.root.xpath('//office:font-face-decls/style:font-face', \
                                                 namespaces=self.styles_new.namespaces)
             font_face_orig = self.styles.root.xpath('//office:font-face-decls/style:font-face', \
-                                                namespaces=self.styles_new.namespaces)
+                                                namespaces=self.styles.namespaces)
             self._replace_style_by_attrib(font_face_new, font_face_orig, 'name', self.styles.namespaces['style'])
             ###### styles ######
             new_styles = self.styles_new.root.xpath('//office:styles/style:style', \
                                                 namespaces=self.styles_new.namespaces)
             orig_styles = self.styles.root.xpath('//office:styles/style:style', \
-                                                namespaces=self.styles_new.namespaces)
+                                                namespaces=self.styles.namespaces)
             self._replace_style_by_attrib(new_styles, orig_styles, 'name', self.styles.namespaces['style'])
             ##### master-styles #####
-            new_master_page_styles = self.styles_new.root.xpath('//office:master-styles/style:master-page', \
-                                                namespaces=self.styles_new.namespaces)[0]
-            orig_master_page_styles = self.styles.root.xpath('//office:master-styles/style:master-page', \
-                                                namespaces=self.styles_new.namespaces)[0]
-            self._replace_style_by_tag(new_master_page_styles, orig_master_page_styles, 'header', self.styles.namespaces['style'])
-            self._replace_style_by_tag(new_master_page_styles, orig_master_page_styles, 'footer', self.styles.namespaces['style'])
+            new_master_page_styles = self.styles_new.root.xpath('//office:master-styles/style:master-page', namespaces=self.styles_new.namespaces)#[0]
+            orig_master_page_styles = self.styles.root.xpath('//office:master-styles/style:master-page', namespaces=self.styles.namespaces)#[0]
+            self._replace_style_by_attrib(new_master_page_styles, orig_master_page_styles, 'name', self.styles.namespaces['style'])
+            #self._replace_style_by_tag(new_master_page_styles, orig_master_page_styles, 'header', self.styles.namespaces['style'])
+            #self._replace_style_by_tag(new_master_page_styles, orig_master_page_styles, 'footer', self.styles.namespaces['style'])
             ##### automatic-styles #####
-            new_automatic_page_styles = self.styles_new.root.xpath('//office:automatic-styles', \
-                                                namespaces=self.styles_new.namespaces)[0]
-            orig_automatic_page_styles = self.styles.root.xpath('//office:automatic-styles', \
-                                                namespaces=self.styles_new.namespaces)[0]
-            self._replace_style_by_tag(new_automatic_page_styles, orig_automatic_page_styles, 'style', self.styles.namespaces['style'])
+            new_automatic_page_styles = self.styles_new.root.xpath('//office:automatic-styles/style:style', namespaces=self.styles_new.namespaces)#[0]
+            orig_automatic_page_styles = self.styles.root.xpath('//office:automatic-styles/style:style', namespaces=self.styles.namespaces)#[0]
+            if orig_automatic_page_styles:
+                self._replace_style_by_attrib(new_automatic_page_styles, orig_automatic_page_styles, 'name', self.styles.namespaces['style'])
+            else:
+                dest_node = self.styles.root.xpath('//office:automatic-styles', namespaces=self.styles_new.namespaces)[0]
+                self._add_styles(new_automatic_page_styles, dest_node)
+            #self._replace_style_by_tag(new_automatic_page_styles, orig_automatic_page_styles, 'style', self.styles.namespaces['style'])
+            #self._add_styles(new_automatic_page_styles, dest_node)
 
             new_page_layout = self.styles_new.root.xpath('//office:automatic-styles/style:page-layout', \
                                                 namespaces=self.styles_new.namespaces)
             orig_page_layout = self.styles.root.xpath('//office:automatic-styles/style:page-layout', \
-                                                namespaces=self.styles_new.namespaces)
+                                                namespaces=self.styles.namespaces)
             self._replace_style_by_attrib(new_page_layout, orig_page_layout, 'name', self.styles.namespaces['style'])
             ###########################
             self.styles_xml = str(self.styles)
@@ -1124,29 +1278,48 @@ class OOSerializer:
     def add_custom_property(self, data, ptype):
         self.meta.add_property(data, ptype)
 
-    def _replace_style_by_tag(self, node1, node2, tag_name, namespace):
-        for node in node1.iterchildren():
-            if node.tag=="{%s}%s" % (namespace, tag_name):
-                curr_node = node2.find("{%s}%s" % (namespace, tag_name))
-                if curr_node is not None:
-                    node2.replace(curr_node, deepcopy(node))
-                else:
-                    node2.append(deepcopy(node))
-        return node2
+    def _add_styles(self, node_list, dest_node):
+        for node in node_list:
+            dest_node.append(deepcopy(node))
+        return dest_node
+
+    #def _replace_style_by_tag(self, node1, node2, tag_name, namespace):
+    #    for node in node1.iterchildren():
+    #        if node.tag=="{%s}%s" % (namespace, tag_name):
+    #            curr_node = node2.find("{%s}%s" % (namespace, tag_name))
+    #            if curr_node is not None:
+    #                node2.replace(curr_node, deepcopy(node))
+    #            else:
+    #                node2.append(deepcopy(node))
+    #    return node2
 
     def _replace_style_by_attrib(self, node_list1, node_list2, name, namespace):
         for node1 in node_list1:
-            curr_node = filter(lambda node: node.get('{%s}%s' % (namespace,name))==node1.get('{%s}%s' % (namespace,name)), node_list2)
-            if curr_node and curr_node[0].getchildren():
-                curr_node=curr_node[0]
+            #curr_node = filter(lambda node: node.get('{%s}%s' % (namespace,name))==node1.get('{%s}%s' % (namespace,name)), node_list2)
+            curr_node = None
+            node_to_update = []
+            for node2 in node_list2:
+                if node2.get('{%s}%s' % (namespace,name))==node1.get('{%s}%s' % (namespace,name)):
+                    curr_node = node2
+                    node_to_update.append(node2)
+                    break
+            if curr_node is not None and curr_node.getchildren():
+                #curr_node=curr_node[0]
                 for child_node in curr_node.iterchildren():
+                    curr_node.attrib.update(dict(node1.attrib))
                     orig_node = node1.find(child_node.tag)
                     if orig_node is not None:
                         new_attribs = dict(child_node.attrib)
                         new_attribs.update(orig_node.attrib)
                         new_child_node = EtreeElement(child_node.tag, attrib=new_attribs)
                         new_child_node.append(deepcopy(child_node))
+                        orig_subchildren = orig_node.getchildren()
+                        if orig_subchildren:
+                            self._add_styles(orig_subchildren, new_child_node)
                         curr_node.replace(child_node, new_child_node)
+                        node1.remove(orig_node)
+                if node1 is not None:
+                    self._add_styles(node1, curr_node)
             else:
                 node_list2[0].getparent().append(deepcopy(node1))
         return node_list2
@@ -1177,6 +1350,11 @@ class OOSerializer:
                 ############### Styles usage #################
                 if f_info.filename == STYLES and hasattr(self, 'styles_new'):
                     self.styles_orig = TStyle(serialized_stream)
+                    self.check_guess_type(self.styles_orig.tree, self.styles_orig.namespaces)
+                    self.check_images(self.styles_orig.tree, self.styles_orig.namespaces)
+                    self.check_new_lines(self.styles_orig.tree, self.styles_orig.namespaces)
+                    self.check_tabs(self.styles_orig.tree, self.styles_orig.namespaces)
+                    self.check_spaces(self.styles_orig.tree, self.styles_orig.namespaces)
                     pictures = []
                     for file_name in self.styles_zip.namelist():
                         if file_name.startswith('Pictures'):
@@ -1190,11 +1368,16 @@ class OOSerializer:
                 ###############################################
                 elif f_info.filename == 'content.xml':
                     content = TContent(serialized_stream)
-                    content.check_guess_type()
-                    content.check_images()
-                    content.check_new_lines()
-                    content.check_tabs()
-                    content.check_spaces()
+                    #content.check_guess_type()
+                    #content.check_images()
+                    #content.check_new_lines()
+                    #content.check_tabs()
+                    #content.check_spaces()
+                    self.check_guess_type(content.tree, content.namespaces)
+                    self.check_images(content.tree, content.namespaces)
+                    self.check_new_lines(content.tree, content.namespaces)
+                    self.check_tabs(content.tree, content.namespaces)
+                    self.check_spaces(content.tree, content.namespaces)
                     outzip.writestr(new_info, str(content))
                 else:
                     outzip.writestr(new_info, serialized_stream)

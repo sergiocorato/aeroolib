@@ -1,11 +1,9 @@
 Aeroo Library
-=============     
-A templating library which provides a way to easily output ODF files (odt, ods).
+=========
 
-Adding support for more filetype is easy:
-you just have to create a plugin for this.
+Aeroo Library is a templating library which provides a way to easily output several
+kinds of files (odt, ods). Support for more filetypes can be easily added by
+creating plugins for them.
 
-This reporting engine is based on work done by Relatorio project.
-
-aeroolib also provides a report repository allowing you to link python objects
-and report together, find reports by mimetypes/name/python objects.
+Aeroo Library also provides a report repository allowing you to link python objects
+and report together, find reports by mimetype/name/python object.

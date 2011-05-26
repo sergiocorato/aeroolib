@@ -16,18 +16,16 @@ setup(
     maintainer_email="info@alistek.com",
     description="A templating library able to output odt and pdf files",
     long_description="""
-Aeroo Library
-=============     
-A templating library which provides a way to easily output ODF files (odt, ods).
-     
-Adding support for more filetype is easy:
-you just have to create a plugin for this.
+aeroolib
+=========
 
-This reporting engine is based on work done by Relatorio project.
+A templating library which provides a way to easily output all kind of
+different files (odt, ods, png, svg, ...). Adding support for more filetype is
+easy: you just have to create a plugin for this.
 
 aeroolib also provides a report repository allowing you to link python objects
 and report together, find reports by mimetypes/name/python objects.
-""",
+    """,
     license="GPL License",
     version=get_version(),
     packages=find_packages(),
