@@ -1,6 +1,6 @@
 ##############################################################################
 #
-# Copyright (c) 2010 Alistek Ltd. (http://www.alistek.com) All Rights
+# Copyright (c) 2011 Alistek Ltd. (http://www.alistek.com) All Rights
 # Reserved.
 #                    General contacts <info@alistek.com>
 #
@@ -20,6 +20,9 @@
 # modify it under the terms of the GNU General Public License
 # as published by the Free Software Foundation; either version 3
 # of the License, or (at your option) any later version.
+#
+# This module is GPLv3 or newer and incompatible
+# with OpenERP SA "AGPL + Private Use License"!
 #
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -69,7 +72,7 @@ from aeroolib.reporting import Report, MIMETemplateLoader
 
 GENSHI_EXPR = re.compile(r'''
         (/)?                                 # is this a closing tag?
-        (for|if|choose|when|otherwise|with)  # tag directive
+        (for|if|choose|when|otherwise|with|def|match|attrs|content|replace|strip)  # tag directive
         \s*
         (?:\s(\w+)=["'](.*)["']|$)           # match a single attr & its value
         |
@@ -83,10 +86,6 @@ EXTENSIONS = {'image/png': 'png',
               'image/tiff': 'tif',
               'image/xbm': 'xbm',
              }
-
-EXCEPT_DIRECTIVES = ["if test", "/if", "choose", "/choose", "when test", "/when", "otherwise", "/otherwise", \
-                    "for each", "/for", "with", "/with", "def", "/def", "match", "/match", "attrs", "/attrs", \
-                    "content", "/content", "replace", "/replace", "strip", "/strip"]
 
 AEROO_URI = 'http://alistek.com/'
 GENSHI_URI = 'http://genshi.edgewall.org/'
@@ -165,27 +164,6 @@ class ImageHref:
             return attrs
         else:
             return {}
-        #return {'{http://www.w3.org/1999/xlink}href': path}
-
-
-#class ImageDimension:
-#    "A class used to set dimension in draw tags"
-
-#    def __init__(self, namespaces):
-#        self.namespaces = namespaces
-
-#    def __call__(self, expr, width, height):
-        # expr could be (bitstream, mimetype)
-        # or (bitstreamm mimetype, width, height)
-#        if len(expr) == 4:
-#            width, height = expr[2:]
-#        attrs = {}
-#        if width:
-#            attrs['{%s}width' % self.namespaces['svg']] = width
-#        if height:
-#            attrs['{%s}height' % self.namespaces['svg']] = height
-#        return attrs
-
 
 class ColumnCounter:
     """A class used to count the actual maximum number of cells (and thus
@@ -261,9 +239,6 @@ class Template(MarkupTemplate):
         It adds genshi directives and finds the inner docs.
         """
         zf = self.Serializer.inzip
-        #zf = zipfile.ZipFile(self.filepath or source)
-        #content = zf.read('content.xml')
-        #styles = zf.read('styles.xml')
 
         content = self.Serializer.content_xml
         styles = self.Serializer.styles_xml
@@ -287,7 +262,6 @@ class Template(MarkupTemplate):
             content_files.append((c_path, c_parsed))
             styles_files.append((s_path, s_parsed))
 
-        #zf.close()
         parsed = []
         for fpath, fparsed in content_files + styles_files:
             parsed.append((genshi.core.PI, ('aeroo', fpath), None))
@@ -342,9 +316,8 @@ class Template(MarkupTemplate):
 
     def _aeroo_statements(self, tree):
         def check_except_directive( expr):
-            for ex_dir in EXCEPT_DIRECTIVES:
-                if expr.startswith(ex_dir):
-                    return False
+            if GENSHI_EXPR.match(expr).groups()[1] is not None:
+                return False
             return True
         "finds the aeroo statements (text:a/text:placeholder)"
         # If this node href matches the aeroo URL it is kept.
@@ -355,7 +328,8 @@ class Template(MarkupTemplate):
         placeholder = '{%s}placeholder' % self.namespaces['text']
         text_input = '{%s}text-input' % self.namespaces['text']
         s_xpath = "//text:a[starts-with(@xlink:href, 'python://')]" \
-                  "| //text:placeholder | //text:text-input"
+                  "| //text:placeholder" \
+                  "| //text:text-input[starts-with(@text:description, '<') and substring(@text:description, string-length(@text:description))='>']"
 
         r_statements = []
         opened_tags = []
@@ -477,8 +451,7 @@ class Template(MarkupTemplate):
                     outermost_c_ancestor.getparent().append(outermost_c_ancestor_copy)
                     outermost_c_ancestor = outermost_c_ancestor_copy
                 #########################################################################################################
-                wrap_nodes_between(outermost_o_ancestor, outermost_c_ancestor,
-                                   genshi_node)
+                wrap_nodes_between(outermost_o_ancestor, outermost_c_ancestor, genshi_node)
             else:
                 # It's not a genshi statement it's a python expression
                 r_node.attrib[py_replace] = expr
@@ -684,11 +657,6 @@ class Template(MarkupTemplate):
                                       nsmap={'draw': draw_namespace,
                                              'py': GENSHI_URI})
             draw.replace(draw[0], image_node)
-            #width = draw.attrib.pop(svg_width, None)
-            #height = draw.attrib.pop(svg_height, None)
-            #attr_expr = "__aeroo_make_dimension(%s, '%s', '%s')" % \
-            #        (d_name, width, height)
-            #draw.attrib[py_attrs] = attr_expr
 
     def _handle_innerdocs(self, tree):
         "finds inner_docs and adds them to the processing stack."
@@ -842,161 +810,6 @@ class TContent(object):
         self.namespaces = self.root.nsmap
         ns = lxml.etree.FunctionNamespace(None)
 
-#    def check_tabs(self):
-#        tags = self.tree.xpath("//text:*/text()[contains(string(), '%s')]/.." % TAB, namespaces=self.namespaces)
-#        for tag in tags:
-#            children = tag.getchildren()
-#            if tag.text:
-#                tabs_text=tag.text.split(TAB)
-#                tag.text=tabs_text.pop(0)
-#                pos = 0
-#                for text in tabs_text:
-#                    new_node = EtreeElement('{%s}tab' % self.namespaces['text'],
-#                                        attrib={},
-#                                        nsmap=self.namespaces)
-#                    new_node.tail=text
-#                    tag.insert(pos,new_node)
-#                    pos += 1
-#            else:
-#                new_node = EtreeElement('{%s}tab' % self.namespaces['text'],
-#                    attrib=tag.attrib,
-#                    nsmap=self.namespaces)
-#                tag.addnext(new_node)
-#            for child in tag.iterchildren():
-#                if not child.tail:
-#                    continue
-#                child_tail = child.tail
-#                child.tail = ''
-#                tail_text = child_tail.split(TAB)
-#                n = len(tail_text)-1
-#                while n:
-#                    new_node = EtreeElement('{%s}tab' % self.namespaces['text'],
-#                                attrib={},
-#                                nsmap=self.namespaces)
-#                    child.addnext(new_node)
-#                    n -= 1
-#                child.tail = tail_text.pop(0)
-#                last_node = child.getnext()
-#                for text in tail_text:
-#                    last_node.tail = text
-#                    last_node = last_node.getnext()
-
-
-#    def check_spaces(self):
-#        tags = self.tree.xpath("//text:*[starts-with(text(), ' ') or substring(name(),string-length(name())-1)=' ']", namespaces=self.namespaces)
-#        for tag in tags:
-#            children = tag.getchildren()
-#            if tag.text:
-#                tabs_text=tag.text.split(' ')
-#                tag.text=tabs_text.pop(0)
-#                pos = 0
-#                for text in tabs_text:
-#                    new_node = EtreeElement('{%s}s' % self.namespaces['text'],
-#                                        attrib={},
-#                                        nsmap=self.namespaces)
-#                    new_node.tail=text
-#                    tag.insert(pos,new_node)
-#                    pos += 1
-#            else:
-#                new_node = EtreeElement('{%s}s' % self.namespaces['text'],
-#                    attrib=tag.attrib,
-#                    nsmap=self.namespaces)
-#                tag.addnext(new_node)
-#            for child in tag.iterchildren():
-#                if not child.tail:
-#                    continue
-#                child_tail = child.tail
-#                child.tail = ''
-#                tail_text = child_tail.split(' ')
-#                n = len(tail_text)-1
-#                while n:
-#                    new_node = EtreeElement('{%s}s' % self.namespaces['text'],
-#                                attrib={},
-#                                nsmap=self.namespaces)
-#                    child.addnext(new_node)
-#                    n -= 1
-#                child.tail = tail_text.pop(0)
-#                last_node = child.getnext()
-#                for text in tail_text:
-#                    last_node.tail = text
-#                    last_node = last_node.getnext()
-
-#    def check_new_lines(self):
-#        tags = self.tree.xpath("//text:*[contains(text(), '%s')]" % NEW_LINE, namespaces=self.namespaces)
-#        for tag in tags:
-#            children = tag.getchildren()
-#            if tag.text:
-#                for text in tag.text.split(NEW_LINE):
-#                    new_node = EtreeElement('%s' % tag.tag,
-#                                        attrib=tag.attrib,
-#                                        nsmap=self.namespaces)
-#                    new_node.text=text
-#                    tag.addprevious(new_node)
-#                last_node=new_node
-#            else:
-#                new_node = EtreeElement('%s' % tag.tag,
-#                    attrib=tag.attrib,
-#                    nsmap=self.namespaces)
-#                last_node = new_node
-#                tag.addnext(new_node)
-#            if children:
-#                for child in children:
-#                    if tag.text and tag.text.endswith(NEW_LINE):
-#                        new_node = EtreeElement('%s' % tag.tag,
-#                                        attrib=tag.attrib,
-#                                        nsmap=self.namespaces)
-#                        new_node.append(child)
-#                        last_node.addnext(new_node)
-#                        last_node = new_node
-#                        last_child = None
-#                    else:
-#                        last_node.append(child)
-#                        last_child = child
-#
-#                    if not child.tail:
-#                        continue
-#                    child_tail = child.tail
-#                    child.tail = ''
-#                    tail_text = child_tail.split(NEW_LINE)
-#                    if tail_text[0] is not None and last_child is not None:
-#                        last_child.tail = tail_text.pop(0)
-#                    for text in tail_text:
-#                        new_node = EtreeElement('%s' % tag.tag,
-#                                    attrib=tag.attrib,
-#                                    nsmap=self.namespaces)
-#                        new_node.text=text
-#                        last_node.addnext(new_node)
-#                        last_node = new_node
-#            tag.getparent().remove(tag)
-
-#    def check_guess_type(self):
-#        tags = self.tree.xpath('//table:table-cell[@guess_type]', namespaces=self.namespaces)
-#        for tag in tags:
-#            if len(tag)>1 or tag[0].getchildren():
-#                guess_type = 'string'
-#            else:
-#                try:
-#                    float(tag[0].text)
-#                    guess_type = 'float'
-#                    tag.attrib['{%s}value' % self.namespaces['office']] = tag[0].text
-#                except ValueError:
-#                    guess_type = 'string'
-#                except TypeError:
-#                    guess_type = 'string'
-#            tag.attrib['{%s}value-type' % self.namespaces['office']] = guess_type
-#            del tag.attrib['guess_type']
-
-#    def check_images(self):
-#        tags = self.tree.xpath('//draw:frame/draw:image[@svg:height and @svg:width]', namespaces=self.namespaces)
-#        for tag in tags:
-#            height = tag.attrib['{%s}height' % self.namespaces['svg']]
-#            width = tag.attrib['{%s}width' % self.namespaces['svg']]
-#            del tag.attrib['{%s}height' % self.namespaces['svg']]
-#            del tag.attrib['{%s}width' % self.namespaces['svg']]
-            
-#            tag.getparent().attrib.update({'{%s}height' % self.namespaces['svg']:height,
-#                                           '{%s}width' % self.namespaces['svg']:width})
-
     def __str__(self):
         return lxml.etree.tostring(self.tree, encoding='UTF-8',
                                    xml_declaration=True)
@@ -1012,55 +825,14 @@ class OOSerializer:
         self.content_xml = self.inzip.read('content.xml')
         self.styles_xml = self.inzip.read('styles.xml')
         self.apply_style(oo_styles)
-        #if oo_styles:
-        #    self.styles_zip = zipfile.ZipFile(oo_styles)
-        #    self.styles_new = TStyle(self.styles_zip.read(STYLES))
-        #    self.styles_new_xml = str(self.styles_new)
-        #    self.styles = TStyle(self.inzip.read(STYLES))
-            ##### font-face #####
-        #    font_face_new = self.styles_new.root.xpath('//office:font-face-decls/style:font-face', \
-        #                                        namespaces=self.styles_new.namespaces)
-        #    font_face_orig = self.styles.root.xpath('//office:font-face-decls/style:font-face', \
-        #                                        namespaces=self.styles_new.namespaces)
-        #    self._replace_style_by_attrib(font_face_new, font_face_orig, 'name', self.styles.namespaces['style'])
-            ###### styles ######
-        #    new_styles = self.styles_new.root.xpath('//office:styles/style:style', \
-        #                                        namespaces=self.styles_new.namespaces)
-        #    orig_styles = self.styles.root.xpath('//office:styles/style:style', \
-        #                                        namespaces=self.styles_new.namespaces)
-        #    self._replace_style_by_attrib(new_styles, orig_styles, 'name', self.styles.namespaces['style'])
-            ##### master-styles #####
-        #    new_master_page_styles = self.styles_new.root.xpath('//office:master-styles/style:master-page', \
-        #                                        namespaces=self.styles_new.namespaces)[0]
-        #    orig_master_page_styles = self.styles.root.xpath('//office:master-styles/style:master-page', \
-        #                                        namespaces=self.styles_new.namespaces)[0]
-        #    self._replace_style_by_tag(new_master_page_styles, orig_master_page_styles, 'header', self.styles.namespaces['style'])
-        #    self._replace_style_by_tag(new_master_page_styles, orig_master_page_styles, 'footer', self.styles.namespaces['style'])
-            ##### automatic-styles #####
-        #    new_automatic_page_styles = self.styles_new.root.xpath('//office:automatic-styles', \
-        #                                        namespaces=self.styles_new.namespaces)[0]
-        #    orig_automatic_page_styles = self.styles.root.xpath('//office:automatic-styles', \
-        #                                        namespaces=self.styles_new.namespaces)[0]
-        #    self._replace_style_by_tag(new_automatic_page_styles, orig_automatic_page_styles, 'style', self.styles.namespaces['style'])
-
-        #    new_page_layout = self.styles_new.root.xpath('//office:automatic-styles/style:page-layout', \
-        #                                        namespaces=self.styles_new.namespaces)
-        #    orig_page_layout = self.styles.root.xpath('//office:automatic-styles/style:page-layout', \
-        #                                        namespaces=self.styles_new.namespaces)
-        #    self._replace_style_by_attrib(new_page_layout, orig_page_layout, 'name', self.styles.namespaces['style'])
-            ###########################
-        #    self.styles_xml = str(self.styles)
 
         self.new_oo = None
-        #self.new_oo = StringIO()
-        #self.outzip = zipfile.ZipFile(self.new_oo, 'w')
         self.xml_serializer = genshi.output.XMLSerializer()
 
 
 
     def check_tabs(self, tree, namespaces):
         tags = tree.xpath("//text:*/text()[contains(string(), '%s')]/.." % TAB, namespaces=namespaces)
-        #tags = self.tree.xpath("//text:*/text()[contains(string(), '%s')]/.." % TAB, namespaces=self.namespaces)
         for tag in tags:
             children = tag.getchildren()
             if tag.text:
@@ -1100,7 +872,6 @@ class OOSerializer:
 
 
     def check_spaces(self, tree, namespaces):
-        #tags = self.tree.xpath("//text:*[starts-with(text(), ' ') or substring(name(),string-length(name())-1)=' ']", namespaces=self.namespaces)
         tags = tree.xpath("//text:*[starts-with(text(), ' ') or substring(name(),string-length(name())-1)=' ']", namespaces=namespaces)
         for tag in tags:
             children = tag.getchildren()
@@ -1140,8 +911,85 @@ class OOSerializer:
                     last_node = last_node.getnext()
 
     def check_new_lines(self, tree, namespaces):
-        #tags = self.tree.xpath("//text:*[contains(text(), '%s')]" % NEW_LINE, namespaces=self.namespaces)
-        tags = tree.xpath("//text:*[contains(text(), '%s')]" % NEW_LINE, namespaces=namespaces)
+        #tags = tree.xpath("//text:*[contains(text(), '%s')]" % NEW_LINE, namespaces=namespaces)
+        #tags = tree.xpath("//text:*[text()[contains(., '%s')]]" % NEW_LINE, namespaces=namespaces)
+        span_tags = tree.xpath("//text:span[text()[contains(., '%s')]]" % NEW_LINE, namespaces=namespaces)
+        for tag in span_tags:
+            if tag.tag=='{%s}span' % namespaces['text']:
+                span_texts = tag.text.split(NEW_LINE)
+                parent = tag.getparent()
+                parent_attrib = parent.attrib
+                parent_children = parent.iterchildren()
+                parent_itertext = parent.itertext()
+                parent_text = parent.text
+                parent_tail = parent.tail
+                
+                new_parent_node = EtreeElement('%s' % parent.tag,
+                                    attrib=parent_attrib,
+                                    nsmap=namespaces)
+                parent.getparent().replace(parent, new_parent_node)
+                new_parent_node.text = parent_text
+                new_parent_node.tail = parent_tail
+                next_child = new_parent_node
+                try:
+                    while(True):
+                        curr_child = parent_children.next()
+                        if curr_child.tag=='{%s}span' % namespaces['text']:
+                            new_span_node = EtreeElement('{%s}span' % namespaces['text'],
+                                                attrib=tag.attrib,
+                                                nsmap=namespaces)
+                            new_span_node.text = span_texts.pop(0)
+                            next_child.append(new_span_node)
+
+                            curr_child = next_child
+                            for text in span_texts:
+                                new_node = EtreeElement('%s' % parent.tag,
+                                                    attrib=parent_attrib,
+                                                    nsmap=namespaces)
+                                new_span_node = EtreeElement('{%s}span' % namespaces['text'],
+                                                    attrib=tag.attrib,
+                                                    nsmap=namespaces)
+                                new_span_node.text=text
+                                new_node.append(new_span_node)
+                                curr_child.addnext(new_node)
+                                curr_child = new_node
+                            break
+                        else:
+                            next_child.append(curr_child)
+                except StopIteration:
+                    pass
+
+                try:
+                    next_text = True
+                    while(next_text):
+                        next_child = parent_children.next()
+                        curr_child.append(next_child)
+                        next_text = next_child.text
+                    while(True):
+                        next_child = parent_children.next()
+                        if not next_child.text:
+                            curr_child.append(next_child)
+                        else:
+                            new_node = EtreeElement('%s' % parent.tag,
+                                                attrib=parent_attrib,
+                                                nsmap=namespaces)
+                            new_node.append(next_child)
+                            curr_child.addnext(new_node)
+                            curr_child = new_node
+                        if next_child.tail:
+                            next_child_texts = next_child.tail.split(NEW_LINE)
+                            next_child.tail = next_child_texts.pop(0)
+                            for next_text in next_child_texts:
+                                new_node = EtreeElement('%s' % parent.tag,
+                                            attrib=parent_attrib,
+                                            nsmap=namespaces)
+                                new_node.text=next_text
+                                curr_child.addnext(new_node)
+                                curr_child = new_node
+                except StopIteration:
+                    pass
+
+        tags = tree.xpath("//text:*[text()[contains(., '%s')]]" % NEW_LINE, namespaces=namespaces)
         for tag in tags:
             children = tag.getchildren()
             if tag.text:
@@ -1186,13 +1034,13 @@ class OOSerializer:
                         new_node.text=text
                         last_node.addnext(new_node)
                         last_node = new_node
-            tag.getparent().remove(tag)
+            if tag.text:
+                tag.getparent().remove(tag)
 
     def check_guess_type(self, tree, namespaces):
-        #tags = self.tree.xpath('//table:table-cell[@guess_type]', namespaces=self.namespaces)
         tags = tree.xpath('//table:table-cell[@guess_type]', namespaces=namespaces)
         for tag in tags:
-            if len(tag)>1 or tag[0].getchildren():
+            if len(tag)==0 or len(tag)>1 or tag[0].getchildren():
                 guess_type = 'string'
             else:
                 try:
@@ -1205,7 +1053,6 @@ class OOSerializer:
             del tag.attrib['guess_type']
 
     def check_images(self, tree, namespaces):
-        #tags = self.tree.xpath('//draw:frame/draw:image[@svg:height and @svg:width]', namespaces=self.namespaces)
         tags = tree.xpath('//draw:frame/draw:image[@svg:height and @svg:width]', namespaces=namespaces)
         for tag in tags:
             height = tag.attrib['{%s}height' % namespaces['svg']]
@@ -1215,7 +1062,6 @@ class OOSerializer:
             
             tag.getparent().attrib.update({'{%s}height' % namespaces['svg']:height,
                                            '{%s}width' % namespaces['svg']:width})
-
 
 
 
@@ -1241,8 +1087,6 @@ class OOSerializer:
             new_master_page_styles = self.styles_new.root.xpath('//office:master-styles/style:master-page', namespaces=self.styles_new.namespaces)#[0]
             orig_master_page_styles = self.styles.root.xpath('//office:master-styles/style:master-page', namespaces=self.styles.namespaces)#[0]
             self._replace_style_by_attrib(new_master_page_styles, orig_master_page_styles, 'name', self.styles.namespaces['style'])
-            #self._replace_style_by_tag(new_master_page_styles, orig_master_page_styles, 'header', self.styles.namespaces['style'])
-            #self._replace_style_by_tag(new_master_page_styles, orig_master_page_styles, 'footer', self.styles.namespaces['style'])
             ##### automatic-styles #####
             new_automatic_page_styles = self.styles_new.root.xpath('//office:automatic-styles/style:style', namespaces=self.styles_new.namespaces)#[0]
             orig_automatic_page_styles = self.styles.root.xpath('//office:automatic-styles/style:style', namespaces=self.styles.namespaces)#[0]
@@ -1251,8 +1095,6 @@ class OOSerializer:
             else:
                 dest_node = self.styles.root.xpath('//office:automatic-styles', namespaces=self.styles_new.namespaces)[0]
                 self._add_styles(new_automatic_page_styles, dest_node)
-            #self._replace_style_by_tag(new_automatic_page_styles, orig_automatic_page_styles, 'style', self.styles.namespaces['style'])
-            #self._add_styles(new_automatic_page_styles, dest_node)
 
             new_page_layout = self.styles_new.root.xpath('//office:automatic-styles/style:page-layout', \
                                                 namespaces=self.styles_new.namespaces)
@@ -1282,16 +1124,6 @@ class OOSerializer:
         for node in node_list:
             dest_node.append(deepcopy(node))
         return dest_node
-
-    #def _replace_style_by_tag(self, node1, node2, tag_name, namespace):
-    #    for node in node1.iterchildren():
-    #        if node.tag=="{%s}%s" % (namespace, tag_name):
-    #            curr_node = node2.find("{%s}%s" % (namespace, tag_name))
-    #            if curr_node is not None:
-    #                node2.replace(curr_node, deepcopy(node))
-    #            else:
-    #                node2.append(deepcopy(node))
-    #    return node2
 
     def _replace_style_by_attrib(self, node_list1, node_list2, name, namespace):
         for node1 in node_list1:
@@ -1368,11 +1200,6 @@ class OOSerializer:
                 ###############################################
                 elif f_info.filename == 'content.xml':
                     content = TContent(serialized_stream)
-                    #content.check_guess_type()
-                    #content.check_images()
-                    #content.check_new_lines()
-                    #content.check_tabs()
-                    #content.check_spaces()
                     self.check_guess_type(content.tree, content.namespaces)
                     self.check_images(content.tree, content.namespaces)
                     self.check_new_lines(content.tree, content.namespaces)
