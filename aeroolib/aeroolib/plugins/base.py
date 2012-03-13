@@ -1,6 +1,6 @@
 ##############################################################################
 #
-# Copyright (c) 2010 Alistek Ltd. (http://www.alistek.com) All Rights
+# Copyright (c) 2012 Alistek Ltd (http://www.alistek.com) All Rights
 # Reserved.
 #                    General contacts <info@alistek.com>
 #

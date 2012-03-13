@@ -1,6 +1,6 @@
 ##############################################################################
 #
-# Copyright (c) 2011 Alistek Ltd. (http://www.alistek.com) All Rights
+# Copyright (c) 2012 Alistek Ltd (http://www.alistek.com) All Rights
 # Reserved.
 #                    General contacts <info@alistek.com>
 #
@@ -117,13 +117,6 @@ NEW_LINE = "[%s]" % md5("&#xA;").hexdigest()
 # parent node defines it. Unfortunately, lxml doesn't support this:
 # the nsmap attribute of Element objects is (currently) readonly.
 
-def _filter(val):
-    if type(val)==bool:
-        return ''
-    elif type(val) in (str, unicode):
-        return val.replace('\t', TAB).replace('\n', NEW_LINE).replace('\r\n', NEW_LINE)
-    else:
-        return val
 
 class OOTemplateError(genshi.template.base.TemplateSyntaxError):
     "Error to raise when there is a SyntaxError in the genshi template"
@@ -221,6 +214,13 @@ def update_py_attrs(node, value):
                 "(lambda x, y: x.update(y) or x)(%s or {}, %s or {})" % \
                 (node.attrib[py_attrs_attr], value)
 
+def _filter(val):
+    if type(val)==bool:
+        return ''
+    elif isinstance(val, (str, unicode)):
+        return val.replace('\t', TAB).replace('\n', NEW_LINE).replace('\r\n', NEW_LINE)
+    else:
+        return val
 
 class Template(MarkupTemplate):
 
@@ -684,7 +684,8 @@ class Template(MarkupTemplate):
         outzip = zipfile.ZipFile(self.Serializer.new_oo, 'w')
         self.Serializer.outzip = outzip
         kwargs['__aeroo_make_href'] = ImageHref(self.namespaces, outzip, self.Serializer.manifest, kwargs)
-        kwargs['__filter'] = _filter
+        if '__filter' not in kwargs:
+            kwargs['__filter'] = _filter
 
         counter = ColumnCounter()
         kwargs['__aeroo_reset_col_count'] = counter.reset
