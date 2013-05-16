@@ -121,7 +121,6 @@ NEW_LINE = "[%s]" % md5("&#xA;").hexdigest()
 class OOTemplateError(genshi.template.base.TemplateSyntaxError):
     "Error to raise when there is a SyntaxError in the genshi template"
 
-
 class ImageHref:
     "A class used to add images in the odf zipfile"
 
@@ -148,7 +147,7 @@ class ImageHref:
                 width, height = expr[2:]
             else:
                 width = height = False
-            attrs = {'{http://www.w3.org/1999/xlink}href': path}
+            attrs = {'{%s}href' % self.namespaces['xlink']: path}
             if width:
                 attrs['{%s}width' % self.namespaces['svg']] = width
             if height:
@@ -221,6 +220,12 @@ def _filter(val):
         return val.replace('\t', TAB).replace('\n', NEW_LINE).replace('\r\n', NEW_LINE)
     else:
         return val
+
+def _hyperlink(namespaces):
+    def _hyperlink(expr):
+        attrs = {'{%s}href' % namespaces['xlink']:expr}
+        return attrs
+    return _hyperlink
 
 class Template(MarkupTemplate):
 
@@ -297,6 +302,7 @@ class Template(MarkupTemplate):
         self._invert_style(tree)
         self._handle_aeroo_tags(tree)
         self._handle_images(tree)
+        self._handle_hyperlinks(tree)
         self._handle_innerdocs(tree)
         self._escape_values(tree)
         return StringIO(lxml.etree.tostring(tree))
@@ -335,8 +341,11 @@ class Template(MarkupTemplate):
         opened_tags = []
         # We map each opening tag with its closing tag
         closing_tags = {}
+        dir_sequence = [] # its need for follow syntax checking in template
         for statement in tree.xpath(s_xpath, namespaces=self.namespaces):
             if statement.tag == placeholder:
+                if not statement.text:
+                    continue
                 expr = statement.text[1:-1]
                 expr = check_except_directive(expr) and "__filter(%s)" % statement.text[1:-1] or expr
             elif statement.tag == text_input:
@@ -358,17 +367,40 @@ class Template(MarkupTemplate):
             is_opening = closing != '/'
 
             if directive is not None:
+                dir_sequence.append((directive, expr, is_opening))
                 # map closing tags with their opening tag
                 if is_opening:
                     opened_tags.append(statement)
                 else:
+                    if not opened_tags:
+                        continue
                     closing_tags[id(opened_tags.pop())] = statement
             # - we only need to return opening statements
             if is_opening:
-                r_statements.append((statement,
-                                     (expr, directive, attr, attr_val))
-                                   )
-        assert not opened_tags
+                r_statements.append((statement,(expr, directive, attr, attr_val)))
+
+        ##### Template syntax checking (has no opening/closing tags) #####
+        check_opening = {}
+        open_stm_by_type = {}
+        while(dir_sequence):
+            directive = dir_sequence.pop()
+            check_opening.setdefault(directive[0], 0)
+            if directive[2]: # only for opening tags
+                if directive[0] not in open_stm_by_type:
+                    open_stm_by_type.setdefault(directive[0], [directive[1]])
+                else:
+                    open_stm_by_type[directive[0]].append(directive[1])
+            check_opening[directive[0]] += directive[2] and -1 or 1
+
+        for stm in check_opening:
+            if check_opening[stm]<0: # has no closing tag
+                error_stm = open_stm_by_type[stm][check_opening[stm]-1]
+                raise Exception("Statement has no closing tag. <%s>" % error_stm)
+            if check_opening[stm]>0: # has no opening tag
+                error_stm = "/%s" % stm
+                raise Exception("Statement has no opening tag. <%s>" % error_stm)
+        ##################################################################
+
         return r_statements, closing_tags
 
     def _handle_aeroo_tags(self, tree):
@@ -658,6 +690,14 @@ class Template(MarkupTemplate):
                                              'py': GENSHI_URI})
             draw.replace(draw[0], image_node)
 
+    def _handle_hyperlinks(self, tree):
+        xpath_href_expr = "//draw:a[starts-with(@xlink:href, 'python://')] | //text:a[starts-with(@xlink:href, 'pythonuri://')]"
+        href_attrib = '{%s}href' % self.namespaces['xlink']
+        py_attrs = '{%s}attrs' % self.namespaces['py']
+        for a in tree.xpath(xpath_href_expr, namespaces=self.namespaces):
+            a.attrib[py_attrs] = "__aeroo_hyperlink(%s)" % urllib.unquote(a.attrib[href_attrib]).replace('python://','').replace('pythonuri://','')#[9:]
+            del a.attrib[href_attrib]
+
     def _handle_innerdocs(self, tree):
         "finds inner_docs and adds them to the processing stack."
         href_attrib = '{%s}href' % self.namespaces['xlink']
@@ -684,6 +724,7 @@ class Template(MarkupTemplate):
         outzip = zipfile.ZipFile(self.Serializer.new_oo, 'w')
         self.Serializer.outzip = outzip
         kwargs['__aeroo_make_href'] = ImageHref(self.namespaces, outzip, self.Serializer.manifest, kwargs)
+        kwargs['__aeroo_hyperlink'] = _hyperlink(self.namespaces)
         if '__filter' not in kwargs:
             kwargs['__filter'] = _filter
 
@@ -915,82 +956,9 @@ class OOSerializer:
         #tags = tree.xpath("//text:*[contains(text(), '%s')]" % NEW_LINE, namespaces=namespaces)
         #tags = tree.xpath("//text:*[text()[contains(., '%s')]]" % NEW_LINE, namespaces=namespaces)
         span_tags = tree.xpath("//text:span[text()[contains(., '%s')]]" % NEW_LINE, namespaces=namespaces)
-        for tag in span_tags:
-            if tag.tag=='{%s}span' % namespaces['text']:
-                span_texts = tag.text.split(NEW_LINE)
-                parent = tag.getparent()
-                parent_attrib = parent.attrib
-                parent_children = parent.iterchildren()
-                parent_itertext = parent.itertext()
-                parent_text = parent.text
-                parent_tail = parent.tail
-                
-                new_parent_node = EtreeElement('%s' % parent.tag,
-                                    attrib=parent_attrib,
-                                    nsmap=namespaces)
-                parent.getparent().replace(parent, new_parent_node)
-                new_parent_node.text = parent_text
-                new_parent_node.tail = parent_tail
-                next_child = new_parent_node
-                try:
-                    while(True):
-                        curr_child = parent_children.next()
-                        if curr_child.tag=='{%s}span' % namespaces['text']:
-                            new_span_node = EtreeElement('{%s}span' % namespaces['text'],
-                                                attrib=tag.attrib,
-                                                nsmap=namespaces)
-                            new_span_node.text = span_texts.pop(0)
-                            next_child.append(new_span_node)
-
-                            curr_child = next_child
-                            for text in span_texts:
-                                new_node = EtreeElement('%s' % parent.tag,
-                                                    attrib=parent_attrib,
-                                                    nsmap=namespaces)
-                                new_span_node = EtreeElement('{%s}span' % namespaces['text'],
-                                                    attrib=tag.attrib,
-                                                    nsmap=namespaces)
-                                new_span_node.text=text
-                                new_node.append(new_span_node)
-                                curr_child.addnext(new_node)
-                                curr_child = new_node
-                            break
-                        else:
-                            next_child.append(curr_child)
-                except StopIteration:
-                    pass
-
-                try:
-                    next_text = True
-                    while(next_text):
-                        next_child = parent_children.next()
-                        curr_child.append(next_child)
-                        next_text = next_child.text
-                    while(True):
-                        next_child = parent_children.next()
-                        if not next_child.text:
-                            curr_child.append(next_child)
-                        else:
-                            new_node = EtreeElement('%s' % parent.tag,
-                                                attrib=parent_attrib,
-                                                nsmap=namespaces)
-                            new_node.append(next_child)
-                            curr_child.addnext(new_node)
-                            curr_child = new_node
-                        if next_child.tail:
-                            next_child_texts = next_child.tail.split(NEW_LINE)
-                            next_child.tail = next_child_texts.pop(0)
-                            for next_text in next_child_texts:
-                                new_node = EtreeElement('%s' % parent.tag,
-                                            attrib=parent_attrib,
-                                            nsmap=namespaces)
-                                new_node.text=next_text
-                                curr_child.addnext(new_node)
-                                curr_child = new_node
-                except StopIteration:
-                    pass
-
         tags = tree.xpath("//text:*[text()[contains(., '%s')]]" % NEW_LINE, namespaces=namespaces)
+        tags = list(set(tags)-set(span_tags))
+        #tags = tree.xpath("//text:*[text()[contains(., '%s')]]" % NEW_LINE, namespaces=namespaces)
         for tag in tags:
             children = tag.getchildren()
             if tag.text:
@@ -1037,6 +1005,85 @@ class OOSerializer:
                         last_node = new_node
             if tag.text:
                 tag.getparent().remove(tag)
+
+        for tag in span_tags:
+            if tag.tag=='{%s}span' % namespaces['text']:
+                span_texts = tag.text.split(NEW_LINE)
+                parent = tag.getparent()
+                parent_attrib = parent.attrib
+                parent_children = parent.iterchildren()
+                parent_itertext = parent.itertext()
+                parent_text = parent.text
+                parent_tail = parent.tail
+                
+                new_parent_node = EtreeElement('%s' % parent.tag,
+                                    attrib=parent_attrib,
+                                    nsmap=namespaces)
+                parent.getparent().replace(parent, new_parent_node)
+                new_parent_node.text = parent_text
+                new_parent_node.tail = parent_tail
+                next_child = new_parent_node
+                try:
+                    while(True):
+                        curr_child = parent_children.next()
+                        if curr_child.tag=='{%s}span' % namespaces['text'] and tag.text==curr_child.text:
+                            new_span_node = EtreeElement('{%s}span' % namespaces['text'],
+                                                attrib=tag.attrib,
+                                                nsmap=namespaces)
+                            new_span_node.text = span_texts.pop(0)
+                            next_child.append(new_span_node)
+
+                            curr_child = next_child
+                            for text in span_texts:
+                                new_node = EtreeElement('%s' % parent.tag,
+                                                    attrib=parent_attrib,
+                                                    nsmap=namespaces)
+                                new_span_node = EtreeElement('{%s}span' % namespaces['text'],
+                                                    attrib=tag.attrib,
+                                                    nsmap=namespaces)
+                                new_span_node.text=text
+                                new_node.append(new_span_node)
+                                curr_child.addnext(new_node)
+                                curr_child = new_node
+                            new_span_node.tail = tag.tail # set tail of source node in tail of latest new node
+                            break
+                        else:
+                            next_child.append(curr_child)
+                except StopIteration:
+                    pass
+
+                try:
+                    next_text = True
+                    while(next_text):
+                        next_child = parent_children.next()
+                        curr_child.append(next_child)
+                        next_text = next_child.text
+                except StopIteration:
+                    pass
+                try:
+                    while(True):
+                        next_child = parent_children.next()
+                        if not next_child.text:
+                            curr_child.append(next_child)
+                        else:
+                            new_node = EtreeElement('%s' % parent.tag,
+                                                attrib=parent_attrib,
+                                                nsmap=namespaces)
+                            new_node.append(next_child)
+                            curr_child.addnext(new_node)
+                            curr_child = new_node
+                        if next_child.tail:
+                            next_child_texts = next_child.tail.split(NEW_LINE)
+                            next_child.tail = next_child_texts.pop(0)
+                            for next_text in next_child_texts:
+                                new_node = EtreeElement('%s' % parent.tag,
+                                            attrib=parent_attrib,
+                                            nsmap=namespaces)
+                                new_node.text=next_text
+                                curr_child.addnext(new_node)
+                                curr_child = new_node
+                except StopIteration:
+                    pass
 
     def check_guess_type(self, tree, namespaces):
         tags = tree.xpath('//table:table-cell[@guess_type]', namespaces=namespaces)
@@ -1179,23 +1226,24 @@ class OOSerializer:
                 new_info = zipfile.ZipInfo(f_info.filename, now)
                 for attr in ('compress_type', 'flag_bits', 'create_system'):
                     setattr(new_info, attr, getattr(f_info, attr))
-                serialized_stream = output_encode(self.xml_serializer(stream))
+                serialized_stream = output_encode(self.xml_serializer(stream), encoding='utf-8')
                 ############### Styles usage #################
-                if f_info.filename == STYLES and hasattr(self, 'styles_new'):
+                if f_info.filename == STYLES:
                     self.styles_orig = TStyle(serialized_stream)
                     self.check_guess_type(self.styles_orig.tree, self.styles_orig.namespaces)
                     self.check_images(self.styles_orig.tree, self.styles_orig.namespaces)
                     self.check_new_lines(self.styles_orig.tree, self.styles_orig.namespaces)
                     self.check_tabs(self.styles_orig.tree, self.styles_orig.namespaces)
                     self.check_spaces(self.styles_orig.tree, self.styles_orig.namespaces)
-                    pictures = []
-                    for file_name in self.styles_zip.namelist():
-                        if file_name.startswith('Pictures'):
-                            picture = self.styles_zip.read(file_name)
-                            pictures.append((file_name, picture))
-                            self.manifest.add_file_entry(file_name)
-                    for ffile, picture in pictures:
-                        outzip.writestr(ffile, picture)
+                    if hasattr(self, 'styles_new'):
+                        pictures = []
+                        for file_name in self.styles_zip.namelist():
+                            if file_name.startswith('Pictures'):
+                                picture = self.styles_zip.read(file_name)
+                                pictures.append((file_name, picture))
+                                self.manifest.add_file_entry(file_name)
+                        for ffile, picture in pictures:
+                            outzip.writestr(ffile, picture)
 
                     outzip.writestr(new_info, str(self.styles_orig))
                 ###############################################
