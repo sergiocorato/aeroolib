@@ -30,7 +30,7 @@ and report together, find reports by mimetypes/name/python objects.
     version=get_version(),
     packages=find_packages(),
     install_requires=[
-        "Genshi >= 0.5",
+        "Genshi == 0.6",
         "lxml >= 2.0"
     ],
     classifiers=[
